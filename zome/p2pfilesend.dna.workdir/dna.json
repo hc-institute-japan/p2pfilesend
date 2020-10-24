@@ -1,0 +1,11 @@
+{
+    "name": "p2pfilsend",
+    "uuid": "",
+    "properties": null,
+    "zomes": {
+      "p2pfilesend": {
+        "wasm_path": "../target/wasm32-unknown-unknown/release/p2pfilesend.wasm"
+      }
+    }
+  }
+  
