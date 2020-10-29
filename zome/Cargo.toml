@@ -1,6 +1,6 @@
 [workspace]
 members = [
-  "zomes/p2pfilesend",
+  "./zomes/p2pfilesend",
 ]
 
 [profile.dev]

@@ -11,7 +11,10 @@ use file::{
     FileChunk,
     FileOutput,
     FileOutputList,
-    FileMetadataList
+    FileMetadataList,
+    FileMetadataByAgentListWrapper,
+    AgentListWrapper,
+    FileInput2
 };
 
 pub fn error<T>(reason: &str) -> ExternResult<T> {
@@ -44,6 +47,21 @@ pub fn get_file_from_metadata(file_metadata: FileMetadataOutput) -> ExternResult
 }
 
 #[hdk_extern]
-pub(crate) fn get_all_files(_: ()) -> ExternResult<FileOutputList> {
+pub fn get_all_files(_: ()) -> ExternResult<FileOutputList> {
     file::handlers::get_all_files(())
+}
+
+#[hdk_extern]
+pub fn get_all_file_metadata_from_addresses(agent_list: AgentListWrapper) -> ExternResult<FileMetadataByAgentListWrapper> {
+    file::handlers::get_all_file_metadata_from_addresses(agent_list)
+}
+
+#[hdk_extern]
+pub fn upload_chunk(file_chunk_input: FileChunk) -> ExternResult<EntryHash> {
+    file::handlers::upload_chunk(file_chunk_input)
+}
+
+#[hdk_extern]
+pub fn send_file_2(file_input: FileInput2) -> ExternResult<FileMetadataOption> {
+    file::handlers::send_file_2(file_input)
 }

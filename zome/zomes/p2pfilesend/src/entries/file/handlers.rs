@@ -2,7 +2,8 @@ use hdk3::prelude::*;
 use crate::{timestamp::Timestamp};
 use crate::utils::{
     try_get_and_convert,
-    try_from_element
+    try_from_element,
+    address_deduper
 };
 
 use super::{
@@ -13,20 +14,24 @@ use super::{
     FileChunk,
     FileOutput,
     FileOutputList,
-    FileMetadataList
+    FileMetadataList,
+    FileMetadataByAgentListWrapper,
+    FileMetadataByAgent,
+    AgentListWrapper,
+    FileInput2
 };
 
 // const CHUNK_SIZE: usize = 256 * 1024;
 const CHUNK_SIZE: usize = 2;
 
-pub fn create_file_chunk(bytes: Vec<u8>) -> ExternResult<EntryHash> {
+pub(crate) fn create_file_chunk(bytes: Vec<u8>) -> ExternResult<EntryHash> {
     let file_chunk = FileChunk(bytes);
     let file_chunk_hash = hash_entry!(file_chunk.clone())?;
     let chunk_address = create_entry!(&file_chunk)?;
     Ok(file_chunk_hash)
 }
 
-pub fn create_chunks_from_bytes(bytes: Vec<u8>) -> ExternResult<Vec<EntryHash>> {
+pub(crate) fn create_chunks_from_bytes(bytes: Vec<u8>) -> ExternResult<Vec<EntryHash>> {
     let chunks: Vec<Vec<u8>> = bytes
         .chunks(CHUNK_SIZE)
         .map(|bytes| Vec::from(bytes))
@@ -72,8 +77,14 @@ fn init(_: ()) -> ExternResult<InitCallbackResult> {
     Ok(InitCallbackResult::Pass)
 }
 
-pub(crate) fn send_file(file_input: FileInput) -> ExternResult<FileMetadataOption> {
+pub(crate) fn upload_chunk(file_chunk_input: FileChunk) -> ExternResult<EntryHash> {
+    let file_chunk = FileChunk(file_chunk_input.0);
+    let file_chunk_hash = hash_entry!(file_chunk.clone())?;
+    let chunk_address = create_entry!(&file_chunk)?;
+    Ok(file_chunk_hash)
+}
 
+pub(crate) fn send_file(file_input: FileInput) -> ExternResult<FileMetadataOption> {
     let chunks_hashes = create_chunks_from_bytes(file_input.bytes)?;
 
     let now = sys_time!()?;
@@ -97,6 +108,49 @@ pub(crate) fn send_file(file_input: FileInput) -> ExternResult<FileMetadataOptio
         payload
     )? {
         ZomeCallResponse::Ok(output) => {
+            debug!(format!("nicko call remote success"))?;
+            let file_output: FileMetadataOption = output.into_inner().try_into()?;
+            match file_output.0 {
+                Some(file_output) => {
+                    let file_metadata_entry = FileMetadataEntry::from_output(file_output.clone());
+                    create_entry!(&file_metadata_entry)?;
+                    Ok(FileMetadataOption(Some(file_output)))
+                },
+                None => {
+                    Ok(FileMetadataOption(None))
+                }
+            }
+        },
+        ZomeCallResponse::Unauthorized => {
+            crate::error("{\"code\": \"401\", \"message\": \"This agent has no proper authorization\"}")
+        }
+    }
+}
+
+pub(crate) fn send_file_2(file_input: FileInput2) -> ExternResult<FileMetadataOption> {
+
+    let now = sys_time!()?;
+    let file_metadata = FileMetadataOutput {
+        author: agent_info!()?.agent_latest_pubkey,
+        receiver: file_input.receiver.clone(),
+        file_name: file_input.file_name,
+        file_size: file_input.file_size,
+        file_type: file_input.file_type,
+        time_sent: Timestamp(now.as_secs() as i64, now.subsec_nanos()),
+        time_received: None,
+        chunks: file_input.chunks
+    };
+    let payload: SerializedBytes = file_metadata.try_into()?;
+
+    match call_remote!(
+        file_input.receiver,
+        zome_info!()?.zome_name,
+        "receive_file".into(),
+        None,
+        payload
+    )? {
+        ZomeCallResponse::Ok(output) => {
+            debug!(format!("nicko call remote success"))?;
             let file_output: FileMetadataOption = output.into_inner().try_into()?;
             match file_output.0 {
                 Some(file_output) => {
@@ -116,6 +170,7 @@ pub(crate) fn send_file(file_input: FileInput) -> ExternResult<FileMetadataOptio
 }
 
 pub(crate) fn receive_file(metadata_input: FileMetadataOutput) -> ExternResult<FileMetadataOption> {
+    debug!(format!("nicko call remote success callee entered"))?;
     let mut file_metadata = FileMetadataEntry::from_output(metadata_input.clone());
     let now = sys_time!()?;
     file_metadata.time_received = Some(Timestamp(now.as_secs() as i64, now.subsec_nanos()));
@@ -160,6 +215,8 @@ pub(crate) fn get_all_file_metadata(_: ()) -> ExternResult<FileMetadataList> {
 }
 
 pub(crate) fn get_file_from_metadata(file_metadata: FileMetadataOutput) -> ExternResult<FileOutput> {
+
+    debug!(format!("nicko metadata input : {:?}", file_metadata))?;
     
     let chunks_hashes = file_metadata.chunks;
     
@@ -198,3 +255,60 @@ pub(crate) fn get_all_files(_: ()) -> ExternResult<FileOutputList> {
     Ok(FileOutputList(file_output_list))
 }
 
+pub(crate) fn get_all_file_metadata_from_addresses(agent_list: AgentListWrapper) -> ExternResult<FileMetadataByAgentListWrapper> {
+    let deduped_agents = address_deduper(agent_list.0);
+    
+    let query_result = query!(
+        QueryFilter::new()
+        .entry_type(
+            EntryType::App(
+                AppEntryType::new(
+                    EntryDefIndex::from(0),
+                    zome_info!()?.zome_id,
+                    EntryVisibility::Public
+                )
+            )
+        )
+        .include_entries(true)
+    )?;
+
+    let mut agent_filemetadata_hashmap = std::collections::HashMap::new();
+    for agent in deduped_agents {
+        let file_metadata_list: Vec<FileMetadataOutput> = Vec::new();
+        agent_filemetadata_hashmap.insert(agent, file_metadata_list);                                                                                                                                                                               
+    };
+
+    let map_result: Vec<FileMetadataOutput> = query_result.0
+        .into_iter()
+        .filter_map(|el| {
+            let entry = try_from_element::<FileMetadataEntry>(el);
+            match entry {
+                Ok(file_metadata_entry) => {
+                    let file_metadata_output = FileMetadataOutput::from_entry(file_metadata_entry);
+                    if agent_filemetadata_hashmap.contains_key(&file_metadata_output.author) {
+                        if let Some(vec) = agent_filemetadata_hashmap.get_mut(&file_metadata_output.author) {
+                            &vec.push(file_metadata_output.clone());
+                        };
+                    }
+                    Some(file_metadata_output)
+                },
+                _ => {
+                    debug!(format!("nicko iter error")).ok()?;
+                    None
+                }
+            }
+        })
+        .collect();
+
+    let mut agent_filemetadata_vec: Vec<FileMetadataByAgent> = Vec::new();
+    for (agent, list) in agent_filemetadata_hashmap.iter() {
+        agent_filemetadata_vec.push(
+            FileMetadataByAgent {
+                author: agent.to_owned(),
+                metadata: (*list).to_vec()
+            }
+        );
+    };
+
+    Ok(FileMetadataByAgentListWrapper(agent_filemetadata_vec))
+}

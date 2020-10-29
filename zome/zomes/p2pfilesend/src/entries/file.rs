@@ -31,6 +31,15 @@ pub struct FileInput {
 }
 
 #[derive(From, Into, Serialize, Deserialize, SerializedBytes, Clone, Debug)]
+pub struct FileInput2 {
+    pub receiver: AgentPubKey,
+    pub file_name: String,
+    pub file_size: usize,
+    pub file_type: String,
+    pub chunks: Vec<EntryHash>,
+}
+
+#[derive(From, Into, Serialize, Deserialize, SerializedBytes, Clone, Debug)]
 pub struct FileMetadataOutput {
     author: AgentPubKey,
     receiver: AgentPubKey,
@@ -83,3 +92,16 @@ pub struct FileOutput(Vec<u8>);
 
 #[derive(From, Into, Serialize, Deserialize, SerializedBytes)]
 pub struct FileOutputList(Vec<FileOutput>);
+
+#[derive(From, Into, Serialize, Deserialize, SerializedBytes)]
+pub struct AgentListWrapper(Vec<AgentPubKey>);
+
+#[derive(Serialize, Deserialize, SerializedBytes, Clone, Debug)]
+pub struct FileMetadataByAgent {
+    author: AgentPubKey,
+    metadata: Vec<FileMetadataOutput>
+}
+
+#[derive(From, Into, Serialize, Deserialize, SerializedBytes)]
+pub struct FileMetadataByAgentListWrapper(Vec<FileMetadataByAgent>);
+
