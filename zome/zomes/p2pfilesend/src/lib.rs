@@ -13,8 +13,7 @@ use file::{
     FileOutputList,
     FileMetadataList,
     FileMetadataByAgentListWrapper,
-    AgentListWrapper,
-    FileInput2
+    AgentListWrapper
 };
 
 pub fn error<T>(reason: &str) -> ExternResult<T> {
@@ -59,9 +58,4 @@ pub fn get_all_file_metadata_from_addresses(agent_list: AgentListWrapper) -> Ext
 #[hdk_extern]
 pub fn upload_chunk(file_chunk_input: FileChunk) -> ExternResult<EntryHash> {
     file::handlers::upload_chunk(file_chunk_input)
-}
-
-#[hdk_extern]
-pub fn send_file_2(file_input: FileInput2) -> ExternResult<FileMetadataOption> {
-    file::handlers::send_file_2(file_input)
 }

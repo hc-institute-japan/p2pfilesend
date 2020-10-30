@@ -11,7 +11,6 @@ const config = Config.gen({
   carly: Config.dna('../p2pfilesend.dna.gz', null)
 });
 
-
 function strToUtf16Bytes(str) {
   const bytes: Array<number> = [];
   for (let ii = 0; ii < str.length; ii++) {
@@ -65,12 +64,7 @@ function upload_chunk(input) {
     conductor.call(caller, "p2pfilesend", "upload_chunk", input);
 }
 
-function send_file_2(metadata) {
-  return (conductor, caller) =>
-    conductor.call(caller, "p2pfilesend", "send_file_2", metadata);
-};
-
-orchestrator.registerScenario("file sending", async (s, t) => {
+orchestrator.registerScenario("file sending and retrieval", async (s, t) => {
   const { conductor } = await s.players({ conductor: config });
   await conductor.spawn();
 
@@ -84,17 +78,18 @@ orchestrator.registerScenario("file sending", async (s, t) => {
   console.log("carly address");
   console.log(agent_pubkey_carly);
 
-  let text_1 = "The quick brown fox jumps over the lazy dog.";
-  let text_2 = "Sphinx of black quartz, judge my vow.";
+  let text_1 = 'The quick brown fox jumps over the lazy dog.';
+  let text_2 = 'Sphinx of black quartz, judge my vow.';
   let text_3 = "A wizard's job is to vex chumps quickly in fog.";
   let file_text_1 = strToUtf16Bytes(text_1);
   let file_text_2 = strToUtf16Bytes(text_2);
   let file_text_3 = strToUtf16Bytes(text_3);
+  let message_array = [text_1, text_2, text_3];
+  let chunk_size = 16;
 
   /* 
    * ALICE SENDS A FILE TO BOB
    */ 
-  let chunk_size = 10;
   let chunks_hashes = new Array();  
   for (let i=0; i<file_text_1.length; i=i+chunk_size) {
     let slice = file_text_1.slice(i, i+chunk_size);
@@ -110,12 +105,13 @@ orchestrator.registerScenario("file sending", async (s, t) => {
     chunks: chunks_hashes
   };
 
-  const send_alice = await send_file_2(file_meta_1)(conductor, 'alice');
+  const send_alice_1 = await send_file(file_meta_1)(conductor, 'alice');
   await delay(1000);
   console.log("alice sends another file to bob");
-  console.log(send_alice);
-  t.deepEqual(send_alice.author, agent_pubkey_alice);
-  t.deepEqual(send_alice.receiver, agent_pubkey_bobby);
+  console.log(send_alice_1);
+  t.deepEqual(send_alice_1.author, agent_pubkey_alice);
+  t.deepEqual(send_alice_1.receiver, agent_pubkey_bobby);
+  t.deepEqual(send_alice_1.chunks, file_meta_1.chunks);
 
   /* 
    * ALICE SENDS A SECOND FILE TO BOB
@@ -127,7 +123,7 @@ orchestrator.registerScenario("file sending", async (s, t) => {
     chunks_hashes_2.push(chunk_hash)
   }
 
-  const file_meta_2 = {
+  var file_meta_2: any = {
     receiver: agent_pubkey_bobby,
     file_name: "file_2",
     file_size: file_text_2.length,
@@ -135,24 +131,25 @@ orchestrator.registerScenario("file sending", async (s, t) => {
     chunks: chunks_hashes_2
   };
 
-  const send_alice_2 = await send_file_2(file_meta_2)(conductor, 'alice');
+  const send_alice_2 = await send_file(file_meta_2)(conductor, 'alice');
   await delay(1000);
   console.log("alice sends another file to bob");
   console.log(send_alice_2);
   t.deepEqual(send_alice_2.author, agent_pubkey_alice);
   t.deepEqual(send_alice_2.receiver, agent_pubkey_bobby);
+  t.deepEqual(send_alice_2.chunks, file_meta_2.chunks);
 
   /* 
    * BOB SENDS A FILE TO ALICE
    */
-  let chunks_hashes_3 = new Array();  
+  let chunks_hashes_3 = new Array();
   for (let i=0; i<file_text_3.length; i=i+chunk_size) {
     let slice = file_text_3.slice(i, i+chunk_size);
     let chunk_hash = await upload_chunk(slice)(conductor, 'alice');
     chunks_hashes_3.push(chunk_hash)
   }
 
-  const file_meta_3 = {
+  var file_meta_3: any = {
     receiver: agent_pubkey_alice,
     file_name: "file_3",
     file_size: file_text_3.length,
@@ -160,54 +157,69 @@ orchestrator.registerScenario("file sending", async (s, t) => {
     chunks: chunks_hashes_3
   };
 
-  const send_bobby_1 = await send_file_2(file_meta_3)(conductor, 'bobby');
+  const send_bobby_1 = await send_file(file_meta_3)(conductor, 'bobby');
   await delay(1000);
   console.log("bobby sends a file to alice");
   console.log(send_bobby_1);
   t.deepEqual(send_bobby_1.author, agent_pubkey_bobby);
   t.deepEqual(send_bobby_1.receiver, agent_pubkey_alice);
+  t.deepEqual(send_bobby_1.chunks, file_meta_3.chunks);
 
-  // alice gets all file metadata
+  /* 
+   * ALICE GETS ALL FILE METADATA FROM HER SOURCE CHAIN
+   */
   const get_all_metadata_alice = await get_all_file_metadata()(conductor, 'alice');
   await delay(1000);
   console.log("alice gets all file metadata");
   console.log(get_all_metadata_alice);
+  t.deepEqual(get_all_metadata_alice.length, 3);
 
-  // alice gets the file from a metadata
-  const get_file_alice = await get_file_from_metadata(get_all_metadata_alice[0])(conductor, 'alice');
+  /* 
+   * ALICE GETS A FILE FROM A METADATA
+   */
+  const get_file_bobby = await get_file_from_metadata(send_alice_1)(conductor, 'bobby');
   await delay(1000);
   console.log("alice gets the file from a metadata");
-  console.log(get_file_alice);
-  console.log(utf8_to_str(get_file_alice));
+  console.log(get_file_bobby);
+  console.log(utf8_to_str(get_file_bobby));
+  let return_string = utf8_to_str(get_file_bobby);
+  t.deepEqual(utf8_to_str(get_file_bobby), return_string);
 
-  // alice gets all files
+  /* 
+   * ALICE GETS ALL FILES USING THE METADATA IN HER CHAIN
+   */
   const alice_get_all_files = await get_all_files()(conductor, 'alice');
   await delay(1000);
   console.log("alice gets all files");
   console.log(alice_get_all_files);
+  t.deepEqual(alice_get_all_files.length, message_array.length);
 
-  alice_get_all_files.map(file_utf => console.log(utf8_to_str(file_utf)));
-
-  // alice gets all file metadata authored by bob
+  /* 
+   * ALICE GETS ALL FILE METADATA AUTHORED BY BOB
+   */
   const all_metadata_by_bobby = await get_all_file_metadata_from_addresses([agent_pubkey_bobby])(conductor, 'alice');
   await delay(1000);
   console.log("all file metadata by bobby");
   console.log(all_metadata_by_bobby);
-  console.log(all_metadata_by_bobby[0].metadata.length);
+  t.deepEqual(all_metadata_by_bobby[0].metadata.length, 1);
 
-  // bobby gets all file metadata authored by alice
+  /* 
+   * BOB GETS ALL FILE METADATA AUTHORED BY ALICE
+   */
   const all_metadata_by_alice = await get_all_file_metadata_from_addresses([agent_pubkey_alice])(conductor, 'bobby');
   await delay(1000);
   console.log("all file metadata by alice");
   console.log(all_metadata_by_alice);
-  console.log(all_metadata_by_alice[0].metadata.length);
+  t.deepEqual(all_metadata_by_alice[0].metadata.length, 2);
 
-  // alice gets all file metadata authored by alice and bob
+  /* 
+   * ALICE GETS ALL FILE METADTA AUTHORED BY ALICE AND BOB
+   */
   const all_metadata_by_alice_and_bobby = await get_all_file_metadata_from_addresses([agent_pubkey_alice, agent_pubkey_bobby])(conductor, 'alice');
   await delay(1000);
   console.log("all file metadata by alice and bobby");
   console.log(all_metadata_by_alice_and_bobby);
-  console.log(all_metadata_by_alice_and_bobby[0].metadata.length);
+  t.deepEqual(all_metadata_by_alice_and_bobby[0].metadata.length + all_metadata_by_alice_and_bobby[1].metadata.length, 3);
 });
 
 orchestrator.run()
