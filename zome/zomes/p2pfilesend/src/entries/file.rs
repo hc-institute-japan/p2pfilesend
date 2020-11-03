@@ -28,6 +28,7 @@ pub struct FileInput {
     pub file_size: usize,
     pub file_type: String,
     pub chunks: Vec<EntryHash>,
+    pub hash: String
 }
 
 #[derive(From, Into, Serialize, Deserialize, SerializedBytes, Clone, Debug)]

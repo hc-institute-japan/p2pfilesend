@@ -12,3 +12,7 @@ crate-type = ["cdylib", "rlib"]
 serde = "1"
 derive_more = "0"
 hdk3 = { git = "https://github.com/holochain/holochain.git", branch = "develop" }
+sha2 = "0.9.1"
+hex-literal = "0.3.1"
+hex = "0.4.2"
+byte_string = "1.0.0"
